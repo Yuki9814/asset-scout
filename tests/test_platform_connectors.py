@@ -197,3 +197,44 @@ def test_platform_acquisition_uses_staging_cas_and_deduplicates(monkeypatch, tmp
         assert not list(config.state_dir.glob("*.part"))
     finally:
         catalog.close()
+
+
+def test_synthetic_platform_workflow_reaches_every_frame_analysis(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(
+        application,
+        "inspect_platform_source",
+        lambda source, config: {
+            "platform": "douyin",
+            "source_url": source,
+            "canonical_url": "https://www.douyin.com/video/123456789",
+            "remote_id": "123456789",
+            "title": "#fixture",
+            "author": "Owner",
+            "tags": ["fixture"],
+            "duration": 1.0,
+            "preview_url": None,
+            "restrictions": {},
+            "tool": {"name": "parse-video-py", "version": "pinned"},
+            "raw": {"title": "#fixture"},
+        },
+    )
+    fixture = tmp_path / "synthetic.mp4"
+    _write_fixture_video(fixture)
+
+    def fake_platform_download(candidate, config, destination):
+        destination.write_bytes(fixture.read_bytes())
+        return {"mime": "video/mp4", "lineage": {"connector": "douyin-parse-video", "auth_used": False}}
+
+    monkeypatch.setattr("asset_scout.downloads.acquire_platform_candidate", fake_platform_download)
+    service = AssetScout(tmp_path)
+    try:
+        saved = service.register_platform_source("https://www.douyin.com/video/123456789")
+        service.approve("douyin:123456789", "permission record", RightsBasis.PERMISSION, "rights/fixture.txt")
+        manifest = service.acquire("douyin:123456789")
+        report = service.analyze(manifest["asset_id"])
+        frames = service.get_frames(manifest["asset_id"])
+        assert saved["gate"]["status"] == "review"
+        assert report["frame_count"] == len(frames["frames"]) == 1
+        assert report["technical"]["sha256"] == manifest["sha256"]
+    finally:
+        service.close()

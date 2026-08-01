@@ -31,7 +31,9 @@ def analyze_asset(manifest: AssetManifest, config_root: Path, catalog: Catalog, 
     else:
         report = _analyze_video(path, manifest, config_root, catalog, save_keyframes=save_keyframes)
     technical = report.get("technical") if isinstance(report.get("technical"), dict) else {}
-    manifest.technical = {**manifest.technical, **technical, "sha256": manifest.sha256, "bytes": manifest.bytes}
+    technical = {**technical, "sha256": manifest.sha256, "bytes": manifest.bytes}
+    report["technical"] = technical
+    manifest.technical = {**manifest.technical, **technical}
     if technical.get("width") is not None:
         manifest.width = int(technical["width"])
     if technical.get("height") is not None:
