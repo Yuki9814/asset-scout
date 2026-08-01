@@ -51,7 +51,12 @@ def _call(ctx: typer.Context, operation: Callable[[AssetScout], Any]) -> None:
     try:
         _emit(ctx, operation(service))
     except Exception as exc:  # noqa: BLE001 - CLI must return a stable error object
-        _emit(ctx, {"ok": False, "error": type(exc).__name__, "message": str(exc)})
+        failure = {"ok": False, "error": type(exc).__name__, "message": str(exc)}
+        if hasattr(exc, "code"):
+            failure["code"] = str(exc.code)
+        if hasattr(exc, "retryable"):
+            failure["retryable"] = bool(exc.retryable)
+        _emit(ctx, failure)
         raise typer.Exit(code=1)
     finally:
         service.close()
