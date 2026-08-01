@@ -11,7 +11,15 @@ from .models import MediaType
 
 def create_server(root: str | None = None) -> MCPServer:
     service = AssetScout(root)
-    server = MCPServer(name="asset-scout", version="0.1.0", description="Rights-aware local media discovery")
+    server = MCPServer(name="asset-scout", version="0.2.0", description="Rights-aware local media discovery")
+
+    @server.tool(name="integration_status", description="Report platform connector availability and safety policy.", structured_output=True)
+    def integration_status() -> dict[str, Any]:
+        return service.integration_status()
+
+    @server.tool(name="register_platform_source", description="Inspect one known public platform video URL and save a review candidate.", structured_output=True)
+    def register_platform_source(url: str) -> dict[str, Any]:
+        return service.register_platform_source(url)
 
     @server.tool(name="search_assets", description="Search whitelisted image/video providers and return gated candidates.", structured_output=True)
     def search_assets(query: str, media_type: str | None = None, providers: list[str] | None = None, limit: int = 20) -> dict[str, Any]:
@@ -57,4 +65,3 @@ def create_server(root: str | None = None) -> MCPServer:
 
 def run(root: str | None = None) -> None:
     asyncio.run(create_server(root).run_stdio_async())
-

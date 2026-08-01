@@ -2,7 +2,7 @@
 
 Asset Scout is a local-first, rights-aware image and video discovery tool for AI-assisted editing. It searches a small whitelist of official provider APIs, records the source and license evidence, applies a deterministic usage gate, downloads only an allowed candidate into a content-addressed local store, and exposes frame metrics through a CLI and MCP server.
 
-The first release is deliberately narrow: macOS ARM is the primary target, Linux is supported for CI, and the project does not scrape arbitrary pages, extract sessions/cookies, bypass provider gates, or treat an aggregator result as proof of a license.
+Asset Scout 0.2.0 adds conservative connectors for one known public Bilibili or Douyin video URL. It does not perform platform keyword search, read browser cookies, access private/login-only content, or treat a platform label such as “original” or “no watermark” as a commercial-use grant.
 
 ## Quick start
 
@@ -10,11 +10,12 @@ The first release is deliberately narrow: macOS ARM is the primary target, Linux
 uv sync --extra dev
 uv run asset-scout project init --profile commercial-edited-video
 uv run asset-scout --json doctor
+uv run asset-scout --json integration doctor
 uv run asset-scout --json search "night city" --type image --limit 10
 uv run asset-scout --json library search night
 ```
 
-The default profile is intended for edited videos that may be monetized. `allow` means the captured evidence is machine-verifiable for this profile. `review` requires an explicit local approval with a reason. `deny` cannot be downloaded in v0.1.
+The default profile is intended for edited videos that may be monetized. `allow` means the captured evidence is machine-verifiable for this profile. `review` requires an explicit local approval with a reason. `deny` cannot be downloaded in v0.2.
 
 ## Providers and keys
 
@@ -54,6 +55,27 @@ uv run asset-scout mcp serve
 
 Every-frame metrics are deterministic luma, contrast, and frame-difference values. Representative keyframes are written locally; expensive semantic labels are intentionally supplied later through the MCP `submit_risk_hints` tool rather than bundled model weights.
 
+## Public platform imports
+
+The platform workflow is intentionally explicit:
+
+```text
+source add -> review approve --basis ... --evidence ... -> asset acquire
+           -> local CAS -> analysis run -> frames get
+```
+
+```bash
+uv run asset-scout --json source add "https://www.bilibili.com/video/BV..."
+uv run asset-scout --json source add "https://www.douyin.com/video/123..."
+uv run asset-scout --json review approve bilibili:BV... \
+  --basis owned --evidence rights/record.txt --reason "verified ownership"
+uv run asset-scout --json asset acquire bilibili:BV...
+```
+
+The Bilibili connector calls an externally installed `bvtext` executable. The Douyin connector calls an externally installed `parse-video-py` resolver pinned by the lock note in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Set `ASSET_SCOUT_BVTEXT_BIN` or `ASSET_SCOUT_DOUYIN_RESOLVER` when the executable is not on `PATH`; project-local overrides belong in the ignored `.asset-scout/integrations.json`. Neither tool, its source, nor its binary is copied into this repository.
+
+Both connectors default candidates to `review`. Approval requires a human-entered rights basis and evidence reference; the connector never supplies that approval. Resolver media URLs are treated as short-lived, re-resolved at acquisition time, validated for HTTPS, redirects, private-address access, size, MIME, PyAV readability, and SHA-256 before entering the CAS.
+
 ## Development
 
 ```bash
@@ -61,5 +83,4 @@ uv run pytest
 uv run ruff check .
 ```
 
-The repository is Apache-2.0 licensed. See [SECURITY.md](SECURITY.md) for the threat boundary and [CONTRIBUTING.md](CONTRIBUTING.md) for the review contract.
-
+The repository is Apache-2.0 licensed. See [SECURITY.md](SECURITY.md) for the threat boundary, [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for connector provenance, and [CONTRIBUTING.md](CONTRIBUTING.md) for the review contract.

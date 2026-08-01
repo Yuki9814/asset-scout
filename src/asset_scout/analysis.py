@@ -22,10 +22,25 @@ def analyze_asset(manifest: AssetManifest, config_root: Path, catalog: Catalog, 
     if manifest.media_type.value == "image":
         metrics = _analyze_image(path, manifest, config_root)
         catalog.save_frames(manifest.asset_id, metrics)
+        with Image.open(path) as image:
+            width, height = image.size
+            container = image.format.lower() if image.format else path.suffix.lower().lstrip(".")
         report = {"asset_id": manifest.asset_id, "media_type": "image", "frame_count": 1,
-                  "keyframe_count": 1, "scene_count": 1, "backend": "pillow", "frames": [m.model_dump(mode="json") for m in metrics]}
+                  "keyframe_count": 1, "scene_count": 1, "backend": "pillow", "frames": [m.model_dump(mode="json") for m in metrics],
+                  "technical": {"container": container, "width": width, "height": height, "frame_count": 1}}
     else:
         report = _analyze_video(path, manifest, config_root, catalog, save_keyframes=save_keyframes)
+    technical = report.get("technical") if isinstance(report.get("technical"), dict) else {}
+    manifest.technical = {**manifest.technical, **technical, "sha256": manifest.sha256, "bytes": manifest.bytes}
+    if technical.get("width") is not None:
+        manifest.width = int(technical["width"])
+    if technical.get("height") is not None:
+        manifest.height = int(technical["height"])
+    if technical.get("fps") is not None:
+        manifest.fps = float(technical["fps"])
+    if technical.get("duration") is not None:
+        manifest.duration = float(technical["duration"])
+    catalog.save_asset(manifest)
     analysis_path = config_root / ".asset-scout" / "manifests" / f"{manifest.asset_id.replace(':', '-')}-analysis.json"
     analysis_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     return report
@@ -52,10 +67,23 @@ def _analyze_video(path: Path, manifest: AssetManifest, root: Path, catalog: Cat
     keyframe_count = 0
     frame_count = 0
     fps = manifest.fps or 0.0
+    container_name: str | None = None
+    video_codec: str | None = None
+    audio_codec: str | None = None
+    width: int | None = None
+    height: int | None = None
+    container_duration: float | None = None
     with av.open(str(path)) as container:
+        container_name = getattr(container.format, "name", None)
         stream = next((item for item in container.streams if item.type == "video"), None)
         if stream is None:
             raise AnalysisError("no video stream found")
+        video_codec = getattr(stream.codec_context, "name", None)
+        width, height = stream.width, stream.height
+        audio_stream = next((item for item in container.streams if item.type == "audio"), None)
+        audio_codec = getattr(audio_stream.codec_context, "name", None) if audio_stream else None
+        if container.duration is not None:
+            container_duration = float(container.duration / av.time_base)
         if not fps and stream.average_rate:
             fps = float(stream.average_rate)
         for index, frame in enumerate(container.decode(stream)):
@@ -84,9 +112,13 @@ def _analyze_video(path: Path, manifest: AssetManifest, root: Path, catalog: Cat
             previous = sampled
     if batch:
         catalog.save_frames(manifest.asset_id, batch)
+    duration = manifest.duration or container_duration
     return {"asset_id": manifest.asset_id, "media_type": "video", "frame_count": frame_count,
             "keyframe_count": keyframe_count, "scene_count": scene_count,
             "fps": fps or None, "backend": "pyav-frame-diff",
+            "technical": {"container": container_name, "video_codec": video_codec, "audio_codec": audio_codec,
+                           "width": width, "height": height, "fps": fps or None, "duration": duration,
+                           "frame_count": frame_count},
             "keyframes": [m.model_dump(mode="json") for m in keyframes]}
 
 

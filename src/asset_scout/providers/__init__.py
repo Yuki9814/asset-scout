@@ -20,7 +20,7 @@ class Provider(ABC):
     requires_key: bool = False
 
     def __init__(self, timeout: float = 20.0):
-        self.client = httpx.Client(timeout=timeout, follow_redirects=False, headers={"User-Agent": "asset-scout/0.1"})
+        self.client = httpx.Client(timeout=timeout, follow_redirects=False, headers={"User-Agent": "asset-scout/0.2"})
 
     def close(self) -> None:
         self.client.close()

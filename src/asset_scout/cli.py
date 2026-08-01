@@ -21,10 +21,13 @@ frames_app = typer.Typer(help="Read frame metrics.")
 library_app = typer.Typer(help="Search the local catalog.")
 manifest_app = typer.Typer(help="Export project manifests.")
 mcp_app = typer.Typer(help="Run the MCP server.")
+integration_app = typer.Typer(help="Inspect external platform integration tools.")
+source_app = typer.Typer(help="Register a known public platform source.")
 for group, name in ((project_app, "project"), (candidate_app, "candidate"), (preview_app, "preview"),
                     (rights_app, "rights"), (review_app, "review"), (asset_app, "asset"),
                     (analysis_app, "analysis"), (frames_app, "frames"), (library_app, "library"),
-                    (manifest_app, "manifest"), (mcp_app, "mcp")):
+                    (manifest_app, "manifest"), (mcp_app, "mcp"), (integration_app, "integration"),
+                    (source_app, "source")):
     app.add_typer(group, name=name)
 
 
@@ -39,7 +42,7 @@ def root_options(
 
 
 def _emit(ctx: typer.Context, payload: Any) -> None:
-    # JSON is intentionally the canonical output in v0.1; human-readable output remains valid JSON.
+    # JSON is intentionally the canonical output in v0.2; human-readable output remains valid JSON.
     typer.echo(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
 
 
@@ -93,8 +96,14 @@ def rights_check(ctx: typer.Context, candidate_id: str) -> None:
 
 
 @review_app.command("approve")
-def review_approve(ctx: typer.Context, candidate_id: str, reason: str = typer.Option(..., "--reason")) -> None:
-    _call(ctx, lambda service: service.approve(candidate_id, reason))
+def review_approve(
+    ctx: typer.Context,
+    candidate_id: str,
+    basis: str | None = typer.Option(None, "--basis", help="owned, licensed, or permission"),
+    evidence: str | None = typer.Option(None, "--evidence", help="Rights evidence reference"),
+    reason: str = typer.Option(..., "--reason"),
+) -> None:
+    _call(ctx, lambda service: service.approve(candidate_id, reason, basis, evidence))
 
 
 @asset_app.command("acquire")
@@ -120,6 +129,18 @@ def library_search(ctx: typer.Context, query: str | None = typer.Argument(None),
 @manifest_app.command("export")
 def manifest_export(ctx: typer.Context) -> None:
     _call(ctx, lambda service: service.export_manifest())
+
+
+@integration_app.command("doctor")
+def integration_doctor(ctx: typer.Context) -> None:
+    """Report connector discovery, tool hashes, and the v0.2 auth policy."""
+    _call(ctx, lambda service: service.integration_status())
+
+
+@source_app.command("add")
+def source_add(ctx: typer.Context, url: str = typer.Argument(..., help="One known public platform URL or share text")) -> None:
+    """Inspect one public video and save it as a review candidate."""
+    _call(ctx, lambda service: service.register_platform_source(url))
 
 
 @mcp_app.command("serve")

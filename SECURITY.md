@@ -2,7 +2,7 @@
 
 Asset Scout treats remote provider metadata, OCR, subtitles, and downloaded media as untrusted input.
 
-The v0.1 boundary is:
+The v0.2 boundary is:
 
 - only HTTPS, provider/CDN allow-listed hosts, no credentials or explicit ports;
 - no arbitrary URL downloads, page scraping, session/cookie extraction, or shell execution;
@@ -12,4 +12,3 @@ The v0.1 boundary is:
 - the MCP server exposes search, inspect, review hints, acquisition, analysis, frame reads, local search, and manifest export, but no deletion or rights-gate bypass tool.
 
 Report a security issue privately to the repository maintainers before opening a public issue. Do not include API keys or downloaded private material in reports.
-

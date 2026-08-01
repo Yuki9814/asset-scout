@@ -10,10 +10,31 @@ def evaluate_candidate(candidate: Candidate, profile: UsageProfile = UsageProfil
     reasons: list[str] = []
     hard_deny = False
     review = False
+    platform_candidate = candidate.acquisition is not None or rights.provider in {"bilibili", "douyin"}
 
     if not rights.license_id:
-        hard_deny = True
-        reasons.append("missing license identifier")
+        if platform_candidate:
+            review = True
+            reasons.append("platform source has no machine-verifiable license")
+        else:
+            hard_deny = True
+            reasons.append("missing license identifier")
+    if platform_candidate and not rights.basis:
+        review = True
+        reasons.append("platform source requires a human rights basis")
+    if platform_candidate and not rights.evidence_ref:
+        review = True
+        reasons.append("platform source requires a rights evidence reference")
+    restrictions = candidate.source_metadata.get("restrictions")
+    if isinstance(restrictions, dict):
+        no_reprint = restrictions.get("noReprint")
+        if no_reprint in {True, "1", "true"}:
+            if rights.basis is None:
+                review = True
+                reasons.append("source explicitly disallows reposting until additional permission is evidenced")
+            elif rights.basis not in {"owned", "permission"}:
+                hard_deny = True
+                reasons.append("source explicitly disallows reposting without additional permission")
     if rights.commercial_use is False and profile == UsageProfile.COMMERCIAL_EDITED_VIDEO:
         hard_deny = True
         reasons.append("license does not permit commercial use")
@@ -32,6 +53,9 @@ def evaluate_candidate(candidate: Candidate, profile: UsageProfile = UsageProfil
     if rights.share_alike:
         review = True
         reasons.append("share-alike obligation requires project-level review")
+    if platform_candidate and not rights.audio_rights:
+        review = True
+        reasons.append("embedded audio rights have not been recorded")
     if not rights.verified_source:
         review = True
         reasons.append("aggregator result requires verification against the original source")
@@ -66,4 +90,3 @@ def evaluate_candidate(candidate: Candidate, profile: UsageProfile = UsageProfil
 
 def approved_for_download(candidate: Candidate) -> bool:
     return candidate.gate is not None and candidate.gate.status == GateStatus.ALLOW
-

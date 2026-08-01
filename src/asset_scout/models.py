@@ -27,6 +27,17 @@ class UsageProfile(StrEnum):
     NONCOMMERCIAL = "noncommercial"
 
 
+class AcquisitionKind(StrEnum):
+    EXTERNAL_TOOL = "external-tool"
+    RESOLVED_HTTP = "resolved-http"
+
+
+class RightsBasis(StrEnum):
+    OWNED = "owned"
+    LICENSED = "licensed"
+    PERMISSION = "permission"
+
+
 class RiskFlags(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -44,6 +55,8 @@ class RightsEvidence(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     provider: str
+    basis: RightsBasis | None = None
+    evidence_ref: str | None = None
     license_id: str | None = None
     license_name: str | None = None
     license_url: str | None = None
@@ -53,9 +66,20 @@ class RightsEvidence(BaseModel):
     share_alike: bool = False
     attribution_required: bool = False
     attribution_text: str | None = None
+    audio_rights: str | None = None
     source_terms_ack: bool = False
     verified_source: bool = True
     retrieved_at: datetime = Field(default_factory=utc_now)
+
+
+class AcquisitionSpec(BaseModel):
+    kind: AcquisitionKind
+    connector: str
+    source_url: str
+    canonical_url: str | None = None
+    remote_id: str | None = None
+    auth_mode: str = "none"
+    resolver_version: str | None = None
 
 
 class GateDecision(BaseModel):
@@ -85,6 +109,7 @@ class Candidate(BaseModel):
     fps: float | None = None
     mime: str | None = None
     rights: RightsEvidence
+    acquisition: AcquisitionSpec | None = None
     risk: RiskFlags = Field(default_factory=RiskFlags)
     gate: GateDecision | None = None
     source_metadata: dict[str, Any] = Field(default_factory=dict)
@@ -137,4 +162,3 @@ class SearchRequest(BaseModel):
     media_type: MediaType | None = None
     providers: list[str] | None = None
     limit: int = Field(default=20, ge=1, le=100)
-

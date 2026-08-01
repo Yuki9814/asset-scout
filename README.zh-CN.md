@@ -14,7 +14,7 @@ uv run asset-scout --json search "night city" --type image --limit 10
 uv run asset-scout --json library search night
 ```
 
-默认画像面向可能商业化的视频剪辑：`allow` 表示当前证据满足机器判定；`review` 必须由用户带理由明确批准；`deny` 在 v0.1 中不能下载。
+默认画像面向可能商业化的视频剪辑：`allow` 表示当前证据满足机器判定；`review` 必须由用户带理由明确批准；`deny` 在 v0.2 中不能下载。
 
 Wikimedia Commons 与 Openverse 无需密钥。Openverse 只是聚合入口，必须回到原始来源核验后才能继续。Pexels、Pixabay 需要各自 API key，并且需要显式确认其条款：
 
@@ -35,4 +35,3 @@ uv run ruff check .
 ```
 
 详见 [SECURITY.md](SECURITY.md)、[CONTRIBUTING.md](CONTRIBUTING.md) 与英文 README 的命令示例。
-

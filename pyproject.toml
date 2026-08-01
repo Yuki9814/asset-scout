@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "asset-scout"
-version = "0.1.0"
+version = "0.2.0"
 description = "Local-first, rights-aware image and video asset discovery for AI-assisted editing"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"

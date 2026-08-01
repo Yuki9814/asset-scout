@@ -38,6 +38,11 @@ class ProjectConfig:
     def project_file(self) -> Path:
         return self.state_dir / "project.json"
 
+    @property
+    def integrations_file(self) -> Path:
+        """Local-only executable overrides; the state directory is gitignored."""
+        return self.state_dir / "integrations.json"
+
     def ensure(self) -> None:
         for directory in (self.state_dir, self.blobs_dir, self.previews_dir, self.manifests_dir):
             directory.mkdir(parents=True, exist_ok=True)
@@ -65,4 +70,3 @@ def provider_credentials() -> dict[str, bool]:
 def accepted_terms(provider: str) -> bool:
     key = f"ASSET_SCOUT_ACCEPT_{provider.upper()}_TERMS"
     return os.environ.get(key, "").strip().lower() in {"1", "true", "yes"}
-

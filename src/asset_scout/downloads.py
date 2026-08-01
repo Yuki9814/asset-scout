@@ -10,6 +10,7 @@ from PIL import Image
 
 from .config import ProjectConfig
 from .models import AssetManifest, Candidate
+from .platforms import PlatformError, acquire_platform_candidate
 from .security import UnsafeURL, validate_remote_url
 from .storage import Catalog, cas_path, content_sha256
 
@@ -29,32 +30,48 @@ class DownloadError(RuntimeError):
 def acquire_candidate(candidate: Candidate, config: ProjectConfig, catalog: Catalog) -> AssetManifest:
     if not candidate.gate or candidate.gate.status.value != "allow":
         raise DownloadError("candidate is not allow-listed by the rights gate")
-    if not candidate.download_url:
+    platform_lineage: dict[str, object] = {}
+    mime: str | None = None
+    url: str | None = None
+    suffix = ".mp4" if candidate.acquisition else ""
+    if not candidate.acquisition and not candidate.download_url:
         raise DownloadError("candidate has no provider download URL")
-    try:
-        url = validate_remote_url(candidate.download_url, ALLOWED_HOSTS.get(candidate.provider, set()))
-    except UnsafeURL as exc:
-        raise DownloadError(str(exc)) from exc
+    if candidate.acquisition and candidate.acquisition.auth_mode != "none":
+        raise DownloadError("platform acquisition requires auth_mode=none in v0.2")
+    if candidate.download_url:
+        try:
+            url = validate_remote_url(candidate.download_url, ALLOWED_HOSTS.get(candidate.provider, set()))
+        except UnsafeURL as exc:
+            raise DownloadError(str(exc)) from exc
+        suffix = Path(urlparse(url).path).suffix[:10]
 
-    suffix = Path(urlparse(url).path).suffix[:10]
     temporary = config.state_dir / f"{uuid.uuid4().hex}.part"
     temporary.parent.mkdir(parents=True, exist_ok=True)
     maximum = MAX_BYTES[candidate.media_type.value]
     try:
-        with httpx.Client(timeout=60, follow_redirects=False, headers={"User-Agent": "asset-scout/0.1"}) as client, client.stream("GET", url) as response:
-                if response.status_code >= 300:
-                    raise DownloadError(f"provider returned non-success status {response.status_code}; redirects are not followed")
-                content_length = response.headers.get("content-length")
-                if content_length and int(content_length) > maximum:
-                    raise DownloadError(f"remote asset exceeds {maximum} bytes")
-                total = 0
-                with temporary.open("wb") as output:
-                    for chunk in response.iter_bytes(1024 * 1024):
-                        total += len(chunk)
-                        if total > maximum:
-                            raise DownloadError(f"remote asset exceeds {maximum} bytes")
-                        output.write(chunk)
-                mime = response.headers.get("content-type", "").split(";", 1)[0].strip() or mimetypes.guess_type(url)[0]
+        if candidate.acquisition:
+            try:
+                outcome = acquire_platform_candidate(candidate, config, temporary)
+            except PlatformError as exc:
+                raise DownloadError(f"{exc.code}: {exc}") from exc
+            mime = outcome.get("mime") if isinstance(outcome.get("mime"), str) else None
+            platform_lineage = outcome.get("lineage") if isinstance(outcome.get("lineage"), dict) else {}
+        else:
+            assert url is not None
+            with httpx.Client(timeout=60, follow_redirects=False, headers={"User-Agent": "asset-scout/0.2"}) as client, client.stream("GET", url) as response:
+                    if response.status_code >= 300:
+                        raise DownloadError(f"provider returned non-success status {response.status_code}; redirects are not followed")
+                    content_length = response.headers.get("content-length")
+                    if content_length and int(content_length) > maximum:
+                        raise DownloadError(f"remote asset exceeds {maximum} bytes")
+                    total = 0
+                    with temporary.open("wb") as output:
+                        for chunk in response.iter_bytes(1024 * 1024):
+                            total += len(chunk)
+                            if total > maximum:
+                                raise DownloadError(f"remote asset exceeds {maximum} bytes")
+                            output.write(chunk)
+                    mime = response.headers.get("content-type", "").split(";", 1)[0].strip() or mimetypes.guess_type(url)[0]
         _validate_media_file(temporary, candidate.media_type.value)
     except Exception:
         temporary.unlink(missing_ok=True)
@@ -76,7 +93,13 @@ def acquire_candidate(candidate: Candidate, config: ProjectConfig, catalog: Cata
         media_type=candidate.media_type, local_path=str(destination), sha256=sha256, bytes=size,
         mime=mime or candidate.mime, width=candidate.width, height=candidate.height, duration=candidate.duration,
         fps=candidate.fps, rights=candidate.rights, gate=candidate.gate, risk=candidate.risk,
-        lineage={"source_url": candidate.source_url, "download_url": candidate.download_url, "remote_id": candidate.remote_id, "suffix": suffix},
+        lineage={
+            "source_url": candidate.source_url,
+            "download_url": candidate.download_url if not candidate.acquisition else None,
+            "remote_id": candidate.remote_id,
+            "suffix": suffix,
+            "acquisition": platform_lineage if candidate.acquisition else None,
+        },
     )
     catalog.save_asset(manifest)
     manifest_path = config.manifests_dir / f"{asset_id.replace(':', '-')}.json"

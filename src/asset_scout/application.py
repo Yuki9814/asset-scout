@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import platform
 import sys
@@ -11,14 +12,19 @@ from .config import ProjectConfig, accepted_terms, project_config, provider_cred
 from .downloads import acquire_candidate
 from .gating import evaluate_candidate
 from .models import (
+    AcquisitionKind,
+    AcquisitionSpec,
     Candidate,
     GateDecision,
     GateStatus,
     MediaType,
+    RightsBasis,
+    RightsEvidence,
     RiskFlags,
     SemanticAnnotation,
     UsageProfile,
 )
+from .platforms import inspect_platform_source, integration_status
 from .preview import build_candidate_preview
 from .providers import build_providers
 from .storage import Catalog
@@ -44,7 +50,7 @@ class AssetScout:
 
     def doctor(self) -> dict[str, Any]:
         checks: dict[str, Any] = {
-            "version": "0.1.0", "python": sys.version.split()[0], "platform": platform.platform(),
+            "version": "0.2.0", "python": sys.version.split()[0], "platform": platform.platform(),
             "machine": platform.machine(), "project_root": str(self.config.root),
             "profile": self.config.profile.value, "state_dir": str(self.config.state_dir),
             "providers": provider_credentials(),
@@ -58,7 +64,58 @@ class AssetScout:
             except ImportError:
                 checks["optional"][module] = False
         checks["project_initialized"] = self.config.project_file.exists()
+        checks["integrations"] = integration_status(self.config)
         return checks
+
+    def integration_status(self) -> dict[str, Any]:
+        return integration_status(self.config)
+
+    def register_platform_source(self, source: str) -> dict[str, Any]:
+        """Inspect one known public platform URL and save it as a review candidate."""
+
+        inspected = inspect_platform_source(source, self.config)
+        platform_name = str(inspected["platform"])
+        connector = "bilibili-bvtext" if platform_name == "bilibili" else "douyin-parse-video"
+        remote_id = str(inspected.get("remote_id") or "").strip() or None
+        canonical_url = str(inspected.get("canonical_url") or inspected["source_url"])
+        candidate_key = remote_id or hashlib.sha256(canonical_url.encode("utf-8")).hexdigest()[:16]
+        candidate_id = f"{platform_name}:{candidate_key}"
+        tool = inspected.get("tool") if isinstance(inspected.get("tool"), dict) else {}
+        candidate = Candidate(
+            candidate_id=candidate_id,
+            provider=connector,
+            remote_id=remote_id or candidate_key,
+            media_type=MediaType.VIDEO,
+            title=str(inspected.get("title") or candidate_key),
+            author=inspected.get("author"),
+            tags=list(inspected.get("tags") or []),
+            source_url=str(inspected["source_url"]),
+            preview_url=inspected.get("preview_url"),
+            duration=inspected.get("duration"),
+            mime="video/mp4",
+            rights=RightsEvidence(provider=platform_name),
+            acquisition=AcquisitionSpec(
+                kind=(AcquisitionKind.EXTERNAL_TOOL if platform_name == "bilibili" else AcquisitionKind.RESOLVED_HTTP),
+                connector=connector,
+                source_url=str(inspected["source_url"]),
+                canonical_url=canonical_url,
+                remote_id=remote_id,
+                auth_mode="none",
+                resolver_version=str(tool.get("version") or "unknown"),
+            ),
+            source_metadata={
+                "platform": platform_name,
+                "canonical_url": canonical_url,
+                "restrictions": inspected.get("restrictions") or {},
+                "connector": connector,
+                "tool": tool,
+                "auth_used": False,
+                "metadata": inspected.get("raw") or {},
+            },
+        )
+        candidate.gate = evaluate_candidate(candidate, self.config.profile)
+        self.catalog.save_candidate(candidate)
+        return candidate.model_dump(mode="json")
 
     def search(self, query: str, media_type: MediaType | None = None, providers: list[str] | None = None, limit: int = 20) -> dict[str, Any]:
         candidates: list[Candidate] = []
@@ -104,14 +161,39 @@ class AssetScout:
         self.catalog.save_candidate(candidate)
         return candidate.gate.model_dump(mode="json")
 
-    def approve(self, candidate_id: str, reason: str) -> dict[str, Any]:
+    def approve(
+        self,
+        candidate_id: str,
+        reason: str,
+        basis: RightsBasis | str | None = None,
+        evidence_ref: str | None = None,
+    ) -> dict[str, Any]:
         if not reason.strip():
             raise ValueError("a review reason is required")
         candidate = self.catalog.get_candidate(candidate_id)
         if not candidate:
             raise KeyError(f"candidate not found: {candidate_id}")
         if candidate.gate and candidate.gate.status == GateStatus.DENY:
-            raise ValueError("hard-denied candidates cannot be approved in v0.1")
+            raise ValueError("hard-denied candidates cannot be approved in v0.2")
+        if candidate.acquisition:
+            if basis is None or not str(evidence_ref or "").strip():
+                raise ValueError("platform approval requires --basis and --evidence")
+            try:
+                parsed_basis = basis if isinstance(basis, RightsBasis) else RightsBasis(str(basis))
+            except ValueError as exc:
+                raise ValueError("basis must be owned, licensed, or permission") from exc
+            candidate.rights = candidate.rights.model_copy(
+                update={
+                    "basis": parsed_basis,
+                    "evidence_ref": str(evidence_ref).strip(),
+                    "commercial_use": True,
+                    "derivatives": True,
+                    "audio_rights": "human-confirmed",
+                }
+            )
+            rights_check = evaluate_candidate(candidate, self.config.profile)
+            if rights_check.status == GateStatus.DENY:
+                raise ValueError("rights evidence conflicts with the platform restrictions")
         candidate.gate = GateDecision(status=GateStatus.ALLOW, reasons=[f"human review approved: {reason}"], policy_version="human-review.v1")
         self.catalog.save_candidate(candidate)
         self.catalog.record_review(candidate_id, candidate.gate, reason)

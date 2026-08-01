@@ -25,6 +25,8 @@ def test_catalog_round_trip_and_image_analysis(tmp_path: Path):
     assert catalog.get_asset("asset:fixture")
     report = analyze_asset(manifest, tmp_path, catalog)
     assert report["frame_count"] == 1
+    assert report["technical"]["container"] == "png"
+    assert catalog.get_asset("asset:fixture").technical["sha256"] == digest
     assert catalog.get_frames("asset:fixture")[0].is_keyframe
     assert Path(report["frames"][0]["preview_path"]).exists()
     catalog.close()
@@ -53,6 +55,8 @@ def test_video_analysis_scans_every_frame(tmp_path: Path):
     catalog.save_asset(manifest)
     report = analyze_asset(manifest, tmp_path, catalog)
     assert report["frame_count"] == 4
+    assert report["technical"]["frame_count"] == 4
+    assert report["technical"]["video_codec"]
     assert len(catalog.get_frames("asset:video")) == 4
     assert report["keyframe_count"] >= 1
     catalog.close()
