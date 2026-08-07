@@ -14,7 +14,9 @@ def validate_remote_url(url: str, allowed_hosts: set[str] | None = None) -> str:
     if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.port:
         raise UnsafeURL("only HTTPS URLs without credentials or explicit ports are accepted")
     host = parsed.hostname.lower().rstrip(".")
-    if allowed_hosts and host not in {item.lower().rstrip(".") for item in allowed_hosts}:
+    if allowed_hosts is not None and host not in {
+        item.lower().rstrip(".") for item in allowed_hosts
+    }:
         raise UnsafeURL(f"host is not in the provider allowlist: {host}")
     # The desktop runtime may expose provider DNS through the controlled
     # 198.18.0.0/15 egress range. A strict provider host allowlist plus TLS
